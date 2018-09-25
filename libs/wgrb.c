@@ -309,6 +309,8 @@ int wrtieee_header(unsigned int n, FILE *output);
 
 void levels(int, int, int, int verbose);
 
+char *get_levels(int, int, int, int verbose);
+
 void PDStimes(int time_range, int p1, int p2, int time_unit);
 
 int missing_points(unsigned char *bitmap, int n);
@@ -323,6 +325,8 @@ void GDS_prt_thin_lon(unsigned char *gds);
 void GDS_winds(unsigned char *gds, int verbose);
 
 int PDS_date(unsigned char *pds, int option, int verf_time);
+
+char *get_date(unsigned char *pds);
 
 int add_time(int *year, int *month, int *day, int *hour, int dtime, int unit);
 
@@ -391,12 +395,12 @@ void ensemble(unsigned char *pds, int mode);
 
 /* various centers */
 #define NMC			7
-#define ECMWF			98
+#define ECMWF		98
 #define DWD			78
 #define CMC			54
-#define CPTEC			46
+#define CPTEC		46
 #define CHM			146
-#define LAMI			200
+#define LAMI		200
 
 /* ECMWF Extensions */
 
@@ -1206,23 +1210,37 @@ int main(int argc, char **argv) {
 /*
 
 grib_reader
+Yamamoto, Rodrigo Set.2018
 
 */
 
 typedef struct gbr_data {
-    int x;
-    float *y;
+    int n;
+    int pos;
+    char *datetime;
+    char *shortName;
+    char *name;
+    char *typeOfLevel;
+    int level;
+    int nx;
+    int ny;
+    float *values;
 } GBR_DATA;
 
-int gbr_reader(char *filename) {
+
+GBR_DATA *gb_reader(char *filename, int verbose) {
 
     int i, nx, ny;
+    double temp;
     long int dump = -1;
     unsigned char *msg, *pds, *gds, *bms, *bds, *pointer;
     unsigned char *buffer;
     long int len_grib, nxny, buffer_size, count = 1;
     long unsigned pos = 0;
+    float *array;
     FILE *input;
+
+    GBR_DATA *data, _data;
 
     printf("@@@@@@@@@  Ola enfermeira\n\n");
 
@@ -1253,11 +1271,13 @@ int gbr_reader(char *filename) {
             exit(8);
         }
         pos += len_grib;
-        printf("msg %d", i);
     }
 
 
     /* read the grib messages */
+
+    data = malloc(sizeof(GBR_DATA));
+
     for (;;) {
 
         msg = seek_grib(input, &pos, &len_grib, buffer, MSEEK);
@@ -1315,6 +1335,7 @@ int gbr_reader(char *filename) {
 	    }
 
 
+
         /* end section - "7777" in ascii */
         if (pointer[0] != 0x37 || pointer[1] != 0x37 || pointer[2] != 0x37 || pointer[3] != 0x37) {
 
@@ -1350,12 +1371,49 @@ int gbr_reader(char *filename) {
             ny = 1;
 	    }
 
+        /* decode numeric data */
+
+        if ((array = (float *) malloc(sizeof(float) * nxny)) == NULL) {
+            fprintf(stderr,"memory problems\n");
+            exit(8);
+        }
+
+	    temp = int_power(10.0, - PDS_DecimalScale(pds));
+
+        /* Binary data section */
+ 	    BDS_unpack(array, bds, BMS_bitmap(bms), BDS_NumBits(bds), nxny,
+			   temp*BDS_RefValue(bds),temp*int_power(2.0, BDS_BinScale(bds)));
+
+
+        /* set return data */
+        _data.n = 6;
+//        data.pos = pos;
+//        data.nx = nx;
+//        data.ny = ny;
+//        data.typeOfLevel = get_levels(PDS_KPDS6(pds), PDS_KPDS7(pds), PDS_Center(pds), verbose);
+//        data.datetime = get_date(pds);
+//        data.shortName = "";
+//        data.name = "";
+//        data.values = array;
+
+//        printf("%s",data.datetime);
+//        printf("%g\n",array[0]);
 
         pos += len_grib;
         count++;
+
+        data = (GBR_DATA *) realloc(data, sizeof(_data));
+        *(data) = _data;
+
+
     }
 
+
+
     fclose(input);
+
+
+    return data;
 }
 
 
@@ -2171,7 +2229,32 @@ int wrtieee_header(unsigned int n, FILE *output) {
 
 void levels(int kpds6, int kpds7, int center, int verbose) {
 
+	printf("%s", get_levels(kpds6, kpds7, center, verbose));
+
+}
+
+/*
+ * PDStimes.c   v1.2 wesley ebisuzaki
+ *
+ * prints something readable for time code in grib file
+ *
+ * not all cases decoded
+ * for NCEP/NCAR Reanalysis
+ *
+ * Refactorated to return a string
+ *              Yamamoto, Rodrigo @ Set.2018
+ * v1.2.1 1/99 fixed forecast time unit table
+ * v1.2.2 10/01 add time_range = 11 (at DWD)  Helmut P. Frank
+ * v1.2.3 10/05 add time units 13 = 15 min, 14 = 30 min, and
+ *              time range 13 = nudging analysis, 14 = relabeled forecast
+ *              (at DWD), Helmut P. Frank
+ */
+
+
+char *get_levels(int kpds6, int kpds7, int center, int verbose) {
+
 	int o11, o12;
+    static char level_name[256];
 
 	/* octets 11 and 12 */
 	o11 = kpds7 / 256;
@@ -2180,182 +2263,184 @@ void levels(int kpds6, int kpds7, int center, int verbose) {
 
 	switch (kpds6) {
 
-	case 1: printf("sfc");
+	case 1: sprintf(level_name, "sfc");
 		break;
-	case 2: printf("cld base");
+	case 2: sprintf(level_name, "cld base");
 		break;
-	case 3: printf("cld top");
+	case 3: sprintf(level_name, "cld top");
 		break;
-	case 4: printf("0C isotherm");
+	case 4: sprintf(level_name, "0C isotherm");
 		break;
-	case 5: printf("cond lev");
+	case 5: sprintf(level_name, "cond lev");
 		break;
-	case 6: printf("max wind lev");
+	case 6: sprintf(level_name, "max wind lev");
 		break;
-	case 7: printf("tropopause");
+	case 7: sprintf(level_name, "tropopause");
 		break;
-	case 8: printf("nom. top");
+	case 8: sprintf(level_name, "nom. top");
 		break;
-	case 9: printf("sea bottom");
+	case 9: sprintf(level_name, "sea bottom");
 		break;
 	case 200:
-	case 10: printf("atmos col");
+	case 10: sprintf(level_name, "atmos col");
 		break;
 
 	case 12:
-	case 212: printf("low cld bot");
+	case 212: sprintf(level_name, "low cld bot");
 		break;
 	case 13:
-	case 213: printf("low cld top");
+	case 213: sprintf(level_name, "low cld top");
 		break;
 	case 14:
-	case 214: printf("low cld lay");
+	case 214: sprintf(level_name, "low cld lay");
 		break;
 	case 20:
-		if (verbose == 2) printf("temp=%fK", kpds7/100.0);
-		else printf("T=%fK", kpds7/100.0);
+		if (verbose == 2) sprintf(level_name, "temp=%fK", kpds7/100.0);
+		else sprintf(level_name, "T=%fK", kpds7/100.0);
 		break;
 	case 22:
-	case 222: printf("mid cld bot");
+	case 222: sprintf(level_name, "mid cld bot");
 		break;
 	case 23:
-	case 223: printf("mid cld top");
+	case 223: sprintf(level_name, "mid cld top");
 		break;
 	case 24:
-	case 224: printf("mid cld lay");
+	case 224: sprintf(level_name, "mid cld lay");
 		break;
 	case 32:
-	case 232: printf("high cld bot");
+	case 232: sprintf(level_name, "high cld bot");
 		break;
 	case 33:
-	case 233: printf("high cld top");
+	case 233: sprintf(level_name, "high cld top");
 		break;
 	case 34:
-	case 234: printf("high cld lay");
+	case 234: sprintf(level_name, "high cld lay");
 		break;
 
-	case 201: printf("ocean column");
+	case 201: sprintf(level_name, "ocean column");
 		break;
-	case 204: printf("high trop freezing lvl");
+	case 204: sprintf(level_name, "high trop freezing lvl");
 		break;
-	case 206: printf("grid-scale cld bot");
+	case 206: sprintf(level_name, "grid-scale cld bot");
 		break;
-	case 207: printf("grid-scale cld top");
+	case 207: sprintf(level_name, "grid-scale cld top");
 		break;
-	case 209: printf("bndary-layer cld bot");
+	case 209: sprintf(level_name, "bndary-layer cld bot");
 		break;
 	case 210:
-                if (center == NMC) printf("bndary-layer cld top");
-		else printf("%.2f mb",kpds7*0.01);
+                if (center == NMC) sprintf(level_name, "bndary-layer cld top");
+		else sprintf(level_name, "%.2f mb",kpds7*0.01);
 		break;
-	case 211: printf("bndary-layer cld layer");
+	case 211: sprintf(level_name, "bndary-layer cld layer");
 		break;
-	case 215: printf("cloud ceiling");
+	case 215: sprintf(level_name, "cloud ceiling");
 		break;
-	case 216: printf("Cb base");
+	case 216: sprintf(level_name, "Cb base");
 		break;
-	case 217: printf("Cb top");
+	case 217: sprintf(level_name, "Cb top");
 		break;
-	case 220: printf("planetary boundary layer (from Richardson no.)");
+	case 220: sprintf(level_name, "planetary boundary layer (from Richardson no.)");
 		break;
 	case 235: if (kpds7 % 10 == 0)
-		printf("%dC ocean isotherm level",kpds7/10);
-		else printf("%.1fC ocean isotherm level",kpds7/10.0);
+		sprintf(level_name, "%dC ocean isotherm level",kpds7/10);
+		else sprintf(level_name, "%.1fC ocean isotherm level",kpds7/10.0);
 		break;
-	case 236: printf("%d-%dm ocean layer",o11*10,o12*10);
+	case 236: sprintf(level_name, "%d-%dm ocean layer",o11*10,o12*10);
 		break;
-	case 237: printf("ocean mixed layer bot");
+	case 237: sprintf(level_name, "ocean mixed layer bot");
 		break;
-	case 238: printf("ocean isothermal layer bot");
+	case 238: sprintf(level_name, "ocean isothermal layer bot");
 		break;
-	case 239: printf("sfc-26C ocean layer");
+	case 239: sprintf(level_name, "sfc-26C ocean layer");
 		break;
-	case 240: printf("ocean mixed layer");
+	case 240: sprintf(level_name, "ocean mixed layer");
 		break;
-	case 241: printf("ordered sequence of data");
+	case 241: sprintf(level_name, "ordered sequence of data");
 		break;
-	case 242: printf("convect-cld bot");
+	case 242: sprintf(level_name, "convect-cld bot");
 		break;
-	case 243: printf("convect-cld top");
+	case 243: sprintf(level_name, "convect-cld top");
 		break;
-	case 244: printf("convect-cld layer");
+	case 244: sprintf(level_name, "convect-cld layer");
 		break;
-	case 245: printf("lowest level of wet bulb zero");
+	case 245: sprintf(level_name, "lowest level of wet bulb zero");
 		break;
-	case 246: printf("max e-pot-temp lvl");
+	case 246: sprintf(level_name, "max e-pot-temp lvl");
 		break;
-	case 247: printf("equilibrium lvl");
+	case 247: sprintf(level_name, "equilibrium lvl");
 		break;
-	case 248: printf("shallow convect-cld bot");
+	case 248: sprintf(level_name, "shallow convect-cld bot");
 		break;
-	case 249: printf("shallow convect-cld top");
+	case 249: sprintf(level_name, "shallow convect-cld top");
 		break;
-	case 251: printf("deep convect-cld bot");
+	case 251: sprintf(level_name, "deep convect-cld bot");
 		break;
-	case 252: printf("deep convect-cld top");
+	case 252: sprintf(level_name, "deep convect-cld top");
 		break;
-	case 253: printf("lowest bottom level of supercooled liequid water layer");
+	case 253: sprintf(level_name, "lowest bottom level of supercooled liequid water layer");
 		break;
-	case 254: printf("highest top level of supercooled liquid water layer");
+	case 254: sprintf(level_name, "highest top level of supercooled liquid water layer");
 		break;
-	case 100: printf("%d mb",kpds7);
+	case 100: sprintf(level_name, "%d mb",kpds7);
 	 	break;
-	case 101: printf("%d-%d mb",o11*10,o12*10);
+	case 101: sprintf(level_name, "%d-%d mb",o11*10,o12*10);
 	 	break;
-	case 102: printf("MSL");
+	case 102: sprintf(level_name, "MSL");
 	 	break;
-	case 103: printf("%d m above MSL",kpds7);
+	case 103: sprintf(level_name, "%d m above MSL",kpds7);
 	 	break;
-	case 104: printf("%d-%d m above msl",o11*100,o12*100);
+	case 104: sprintf(level_name, "%d-%d m above msl",o11*100,o12*100);
 	 	break;
-	case 105: printf("%d m above gnd",kpds7);
+	case 105: sprintf(level_name, "%d m above gnd",kpds7);
 	 	break;
-	case 106: printf("%d-%d m above gnd",o11*100,o12*100);
+	case 106: sprintf(level_name, "%d-%d m above gnd",o11*100,o12*100);
 	 	break;
-	case 107: printf("sigma=%.4f",kpds7/10000.0);
+	case 107: sprintf(level_name, "sigma=%.4f",kpds7/10000.0);
 	 	break;
-	case 108: printf("sigma %.2f-%.2f",o11/100.0,o12/100.0);
+	case 108: sprintf(level_name, "sigma %.2f-%.2f",o11/100.0,o12/100.0);
 	 	break;
-	case 109: printf("hybrid lev %d",kpds7);
+	case 109: sprintf(level_name, "hybrid lev %d",kpds7);
 	 	break;
-	case 110: printf("hybrid %d-%d",o11,o12);
+	case 110: sprintf(level_name, "hybrid %d-%d",o11,o12);
 	 	break;
-	case 111: printf("%d cm down",kpds7);
+	case 111: sprintf(level_name, "%d cm down",kpds7);
 	 	break;
-	case 112: printf("%d-%d cm down",o11,o12);
+	case 112: sprintf(level_name, "%d-%d cm down",o11,o12);
 	 	break;
 	case 113:
-		if (verbose == 2) printf("pot-temp=%dK",kpds7);
-		else printf("%dK",kpds7);
+		if (verbose == 2) sprintf(level_name, "pot-temp=%dK",kpds7);
+		else sprintf(level_name, "%dK",kpds7);
 	 	break;
-	case 114: printf("%d-%dK",475-o11,475-o12);
+	case 114: sprintf(level_name, "%d-%dK",475-o11,475-o12);
 	 	break;
-	case 115: printf("%d mb above gnd",kpds7);
+	case 115: sprintf(level_name, "%d mb above gnd",kpds7);
 	 	break;
-	case 116: printf("%d-%d mb above gnd",o11,o12);
+	case 116: sprintf(level_name, "%d-%d mb above gnd",o11,o12);
 	 	break;
-	case 117: printf("%d pv units",INT2(o11,o12)); /* units are suspect */
+	case 117: sprintf(level_name, "%d pv units",INT2(o11,o12)); /* units are suspect */
 	 	break;
-	case 119: printf("%.5f (ETA level)",kpds7/10000.0);
+	case 119: sprintf(level_name, "%.5f (ETA level)",kpds7/10000.0);
 	 	break;
-	case 120: printf("%.2f-%.2f (ETA levels)",o11/100.0,o12/100.0);
+	case 120: sprintf(level_name, "%.2f-%.2f (ETA levels)",o11/100.0,o12/100.0);
 	 	break;
-	case 121: printf("%d-%d mb",1100-o11,1100-o12);
+	case 121: sprintf(level_name, "%d-%d mb",1100-o11,1100-o12);
 	 	break;
-	case 125: printf("%d cm above gnd",kpds7);
+	case 125: sprintf(level_name, "%d cm above gnd",kpds7);
 	 	break;
 	case 126:
-		if (center == NMC) printf("%.2f mb",kpds7*0.01);
+		if (center == NMC) sprintf(level_name, "%.2f mb",kpds7*0.01);
 	 	break;
-	case 128: printf("%.3f-%.3f (sigma)",1.1-o11/1000.0, 1.1-o12/1000.0);
+	case 128: sprintf(level_name, "%.3f-%.3f (sigma)",1.1-o11/1000.0, 1.1-o12/1000.0);
 	 	break;
-	case 141: printf("%d-%d mb",o11*10,1100-o12);
+	case 141: sprintf(level_name, "%d-%d mb",o11*10,1100-o12);
 	 	break;
-	case 160: printf("%d m below sea level",kpds7);
+	case 160: sprintf(level_name, "%d m below sea level",kpds7);
 	 	break;
 	default:
 	 	break;
 	}
+
+	return level_name;
 }
 
 /*
@@ -2372,6 +2457,10 @@ void levels(int kpds6, int kpds7, int center, int verbose) {
  *              time range 13 = nudging analysis, 14 = relabeled forecast
  *              (at DWD), Helmut P. Frank
  */
+
+
+
+
 
 static char *units[] = {
 	"min", "hr", "d", "mon", "yr",
@@ -2402,6 +2491,9 @@ static char *units[] = {
         "??", "??", "??", "??", "??", "??", "??", "??", "??", "??",
         "??", "??", "??", "??", "??", "??", "??", "??", "??", "??",
         "??", " sec"};
+
+
+        /*    !!!!!!!!!!!!!   refatorar  abaixo  !!!!!!!!!!!!!   */
 
 void PDStimes(int time_range, int p1, int p2, int time_unit) {
 
@@ -11400,7 +11492,7 @@ int PDS_date(unsigned char *pds, int option, int v_time) {
 	}
     }
     min =  PDS_Minute(pds);
-
+    printf(">>>>>> %i ",v_time);
     switch(option) {
 	case 0:
 	    printf("%2.2d%2.2d%2.2d%2.2d", year % 100, month, day, hour);
@@ -11416,6 +11508,26 @@ int PDS_date(unsigned char *pds, int option, int v_time) {
     }
     return 0;
 }
+
+
+char *get_date(unsigned char *pds) {
+
+    int year, month, day, hour, min;
+    static char datetime[256];
+
+    year = PDS_Year4(pds);
+    month = PDS_Month(pds);
+    day  = PDS_Day(pds);
+    hour = PDS_Hour(pds);
+    min =  PDS_Minute(pds);
+
+
+    sprintf(datetime, "%2.2d-%2.2d-%2.2d %2.2d:%2.2d", year, month, day, hour, min);
+
+
+    return datetime;
+}
+
 
 #define  FEB29   (31+29)
 static int monthjday[13] = {
