@@ -1276,7 +1276,10 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
 
     /* read the grib messages */
 
-    data = malloc(sizeof(GBR_DATA));
+
+    if ((data = (GBR_DATA*) malloc(sizeof(GBR_DATA))) == NULL) {
+	    fprintf(stderr,"not enough memory\n");
+    }
 
     for (;;) {
 
@@ -1378,6 +1381,9 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
             exit(8);
         }
 
+
+        data = realloc(data, (count+1)*sizeof(GBR_DATA));
+
 	    temp = int_power(10.0, - PDS_DecimalScale(pds));
 
         /* Binary data section */
@@ -1386,10 +1392,11 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
 
 
         /* set return data */
-        _data.n = 6;
-//        data.pos = pos;
-//        data.nx = nx;
-//        data.ny = ny;
+        _data.n = count;
+
+        _data.pos = pos;
+        _data.nx = nx;
+        _data.ny = ny;
 //        data.typeOfLevel = get_levels(PDS_KPDS6(pds), PDS_KPDS7(pds), PDS_Center(pds), verbose);
 //        data.datetime = get_date(pds);
 //        data.shortName = "";
@@ -1399,15 +1406,21 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
 //        printf("%s",data.datetime);
 //        printf("%g\n",array[0]);
 
+        (*(data+count-1)) = _data;
+
+//        *data = _data;
+
+
         pos += len_grib;
         count++;
 
-        data = (GBR_DATA *) realloc(data, sizeof(_data));
-        *(data) = _data;
-
-
     }
 
+    for(i = 0; i < count; i++) {
+
+        printf(">%d, %d %d\n", i, (*(data+i)).n,(*(data+i)).nx);
+
+    }
 
 
     fclose(input);

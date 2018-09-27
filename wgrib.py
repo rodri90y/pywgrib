@@ -52,6 +52,8 @@ _c.gb_reader.argtypes = [c_char_p, c_int]
 _c.gb_reader.restype = POINTER(GBR_DATA)
 res = _c.gb_reader(create_string_buffer('./sampledata/WRFPRS_d01.2018090407.grib1'.encode('utf-8')), 0)
 
-print(res[0].pos)
-# print(res.nx, res.ny)
+
+
+print(res[0].n)
+print(res[0].nx, res[0].ny)
 # print(res.datetime)
