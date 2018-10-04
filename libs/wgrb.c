@@ -313,6 +313,8 @@ char *get_levels(int, int, int, int verbose);
 
 void PDStimes(int time_range, int p1, int p2, int time_unit);
 
+char *times_ref(int time_range, int p1, int p2, int time_unit);
+
 int missing_points(unsigned char *bitmap, int n);
 
 void EC_ext(unsigned char *pds, char *prefix, char *suffix, int verbose);
@@ -1217,18 +1219,27 @@ Yamamoto, Rodrigo Set.2018
 typedef struct gbr_data {
     int n;
     int pos;
+    int parmID;
+    int center;
+    int subcenter;
+    int model;
+    int datatype;
     char *datetime;
+    char *timeref;
     char *shortName;
     char *name;
     char *typeOfLevel;
     int level;
     int nx;
     int ny;
+    char *projection;
+    float coordinates[4];
+    float dxdy[2];
     float *values;
 } GBR_DATA;
 
 
-GBR_DATA *gb_reader(char *filename, int verbose) {
+GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
     int i, nx, ny;
     double temp;
@@ -1238,6 +1249,8 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
     long int len_grib, nxny, buffer_size, count = 1;
     long unsigned pos = 0;
     float *array;
+    float coordinates[4] = {};
+    float dxdy[2] = {};
     FILE *input;
 
     GBR_DATA *data, _data;
@@ -1374,6 +1387,48 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
             ny = 1;
 	    }
 
+
+
+	    /* domain coordinates */
+	    if (gds && GDS_LatLon(gds) && nx != -1) {
+
+            _data.projection = "latlon";
+
+		    memcpy(_data.coordinates,
+                     (float[]){ 0.001*GDS_LatLon_La1(gds),
+                                0.001*GDS_LatLon_Lo1(gds),
+                                0.001*GDS_LatLon_La2(gds),
+                                0.001*GDS_LatLon_Lo2(gds) },
+                     sizeof(_data.coordinates));
+
+            memcpy(_data.dxdy,
+                     (float[]){ 0.001*GDS_LatLon_dx(gds),
+                                0.001*GDS_LatLon_dy(gds) },
+                     sizeof(_data.dxdy));
+        }
+	    else if (gds && GDS_Mercator(gds)) {
+
+            _data.projection = "mercator";
+
+            memcpy(_data.coordinates,
+                     (float[]){ 0.001*GDS_Merc_La1(gds),
+                                0.001*GDS_Merc_Lo1(gds),
+                                0.001*GDS_Merc_La2(gds),
+                                0.001*GDS_Merc_Lo2(gds) },
+                     sizeof(_data.coordinates));
+
+            memcpy(_data.dxdy,
+                     (float[]){ 0.001*GDS_Merc_dx(gds),
+                                0.001*GDS_Merc_dy(gds) },
+                     sizeof(_data.dxdy));
+	    }
+	    else {
+	        _data.projection = "";
+	        memcpy(_data.dxdy, (float[]){}, sizeof(_data.dxdy));
+	    }
+
+
+
         /* decode numeric data */
 
         if ((array = (float *) malloc(sizeof(float) * nxny)) == NULL) {
@@ -1393,35 +1448,31 @@ GBR_DATA *gb_reader(char *filename, int verbose) {
 
         /* set return data */
         _data.n = count;
-
         _data.pos = pos;
+        _data.parmID = PDS_PARAM(pds);
+        _data.center = PDS_Center(pds);
+        _data.subcenter = PDS_Subcenter(pds);
+        _data.model = PDS_Model(pds);
+        _data.datatype = GDS_DataType(gds);
         _data.nx = nx;
         _data.ny = ny;
-//        data.typeOfLevel = get_levels(PDS_KPDS6(pds), PDS_KPDS7(pds), PDS_Center(pds), verbose);
-//        data.datetime = get_date(pds);
-//        data.shortName = "";
-//        data.name = "";
-//        data.values = array;
+        _data.typeOfLevel = get_levels(PDS_KPDS6(pds), PDS_KPDS7(pds), PDS_Center(pds), verbose);
+        _data.datetime = get_date(pds);
+        _data.timeref = times_ref(PDS_TimeRange(pds),PDS_P1(pds),PDS_P2(pds), PDS_ForecastTimeUnit(pds));
+        _data.shortName = k5toa(pds);
+        _data.level = PDS_KPDS7(pds);
+        _data.name = k5_comments(pds);
+        _data.values = array;
 
-//        printf("%s",data.datetime);
-//        printf("%g\n",array[0]);
 
         (*(data+count-1)) = _data;
-
-//        *data = _data;
-
 
         pos += len_grib;
         count++;
 
     }
 
-    for(i = 0; i < count; i++) {
-
-        printf(">%d, %d %d\n", i, (*(data+i)).n,(*(data+i)).nx);
-
-    }
-
+    *msg_size = count;
 
     fclose(input);
 
@@ -2506,11 +2557,31 @@ static char *units[] = {
         "??", " sec"};
 
 
-        /*    !!!!!!!!!!!!!   refatorar  abaixo  !!!!!!!!!!!!!   */
+
 
 void PDStimes(int time_range, int p1, int p2, int time_unit) {
 
+	printf("%s",
+	    times_ref(time_range, p1, p2, time_unit)
+	);
+
+}
+
+
+/*
+ *  return time information of range, unity and etc
+ *
+ *  refatorated to return only a string
+ *  Rodrigo Yamamoto, 04.Out.2018
+ *
+ */
+
+#define _buff(s) ((s)+strlen(s))
+
+char *times_ref(int time_range, int p1, int p2, int time_unit) {
+
 	char *unit;
+	char *time_info = malloc(100);
 	enum {anal, fcst, unknown} type;
 	int fcst_len = 0;
 
@@ -2591,19 +2662,25 @@ void PDStimes(int time_range, int p1, int p2, int time_unit) {
 		break;
 	}
 
-	/* ----------------------------------------------- */
+    /* ----------------------------------------------- */
 
-	if (type == anal) printf("anl:");
-	else if (type == fcst) printf("%d%s fcst:",fcst_len,unit);
+    sprintf(time_info, "%s", "");
 
+	if (type == anal){
+	    sprintf(_buff(time_info), "anl:");
+	}
+	else {
+	    if (type == fcst) {
+	        sprintf(_buff(time_info), "%d%s fcst:",fcst_len,unit);
+        }
+    }
 
 	if (time_range == 123 || time_range == 124) {
-		if (p1 != 0) printf("start@%d%s:",p1,unit);
+		if (p1 != 0)
+		    sprintf(_buff(time_info), "start@%d%s:",p1,unit);
 	}
 
-
-	/* print time range */
-
+	/* time range */
 
 	switch (time_range) {
 
@@ -2611,102 +2688,107 @@ void PDStimes(int time_range, int p1, int p2, int time_unit) {
 	case 1:
 	case 10:
 		break;
-	case 2: printf("valid %d-%d%s:",p1,p2,unit);
+	case 2: sprintf(_buff(time_info), "valid %d-%d%s:",p1,p2,unit);
 		break;
-	case 3: printf("%d-%d%s ave:",p1,p2,unit);
+	case 3: sprintf(_buff(time_info), "%d-%d%s ave:",p1,p2,unit);
 		break;
-	case 4: printf("%d-%d%s acc:",p1,p2,unit);
+	case 4: sprintf(_buff(time_info), "%d-%d%s acc:",p1,p2,unit);
 		break;
-	case 5: printf("%d-%d%s diff:",p1,p2,unit);
+	case 5: sprintf(_buff(time_info), "%d-%d%s diff:",p1,p2,unit);
 		break;
-        case 6: printf("-%d to -%d %s ave:", p1,p2,unit);
+        case 6: sprintf(_buff(time_info), "-%d to -%d %s ave:", p1,p2,unit);
                 break;
-        case 7: printf("-%d to %d %s ave:", p1,p2,unit);
+        case 7: sprintf(_buff(time_info), "-%d to %d %s ave:", p1,p2,unit);
                 break;
 	case 11: if (p1 > 0) {
-		    printf("init fcst %d%s:",p1,unit);
+		    sprintf(_buff(time_info), "init fcst %d%s:",p1,unit);
 		}
 		else {
-	            printf("time?:");
+	            sprintf(_buff(time_info), "time?:");
 		}
 		break;
-	case 13: printf("nudge ana %d%s:",p1,unit);
+	case 13: sprintf(_buff(time_info), "nudge ana %d%s:",p1,unit);
 		break;
-	case 14: printf("rel. fcst %d%s:",p1,unit);
+	case 14: sprintf(_buff(time_info), "rel. fcst %d%s:",p1,unit);
 		break;
 	case 51: if (p1 == 0) {
-		    /* printf("clim %d%s:",p2,unit); */
-		    printf("0-%d%s product:ave@1yr:",p2,unit);
+		    /* sprintf(_buff(time_info), "clim %d%s:",p2,unit); */
+		    sprintf(_buff(time_info), "0-%d%s product:ave@1yr:",p2,unit);
 		}
 		else if (p1 == 1) {
-		    /* printf("clim (diurnal) %d%s:",p2,unit); */
-		    printf("0-%d%s product:same-hour,ave@1yr:",p2,unit);
+		    /* sprintf(_buff(time_info), "clim (diurnal) %d%s:",p2,unit); */
+		    sprintf(_buff(time_info), "0-%d%s product:same-hour,ave@1yr:",p2,unit);
 		}
 		else {
-		    printf("clim? p1=%d? %d%s?:",p1,p2,unit);
+		    sprintf(_buff(time_info), "clim? p1=%d? %d%s?:",p1,p2,unit);
 		}
 		break;
 	case 113:
 	case 123:
-		printf("ave@%d%s:",p2,unit);
+		sprintf(_buff(time_info), "ave@%d%s:",p2,unit);
 		break;
 	case 114:
 	case 124:
-		printf("acc@%d%s:",p2,unit);
+		sprintf(_buff(time_info), "acc@%d%s:",p2,unit);
 		break;
 	case 115:
-		printf("ave of fcst:%d to %d%s:",p1,p2,unit);
+		sprintf(_buff(time_info), "ave of fcst:%d to %d%s:",p1,p2,unit);
 		break;
 	case 116:
-		printf("acc of fcst:%d to %d%s:",p1,p2,unit);
+		sprintf(_buff(time_info), "acc of fcst:%d to %d%s:",p1,p2,unit);
 		break;
 	case 118:
-		printf("var@%d%s:",p2,unit);
+		sprintf(_buff(time_info), "var@%d%s:",p2,unit);
 		break;
 	case 128:
-		printf("%d-%d%s fcst acc:ave@24hr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst acc:ave@24hr:", p1, p2, unit);
 		break;
 	case 129:
-		printf("%d-%d%s fcst acc:ave@%d%s:", p1, p2, unit, p2-p1,unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst acc:ave@%d%s:", p1, p2, unit, p2-p1,unit);
 		break;
 	case 130:
-		printf("%d-%d%s fcst ave:ave@24hr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst ave:ave@24hr:", p1, p2, unit);
 		break;
 	case 131:
-		printf("%d-%d%s fcst ave:ave@%d%s:", p1, p2, unit,p2-p1,unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst ave:ave@%d%s:", p1, p2, unit,p2-p1,unit);
 		break;
 		/* for CFS */
 	case 132:
-		printf("%d-%d%s anl:ave@1yr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s anl:ave@1yr:", p1, p2, unit);
 		break;
 	case 133:
-		printf("%d-%d%s fcst:ave@1yr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst:ave@1yr:", p1, p2, unit);
 		break;
 	case 134:
-		printf("%d-%d%s fcst-anl:rms@1yr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst-anl:rms@1yr:", p1, p2, unit);
 		break;
 	case 135:
-		printf("%d-%d%s fcst-fcst_mean:rms@1yr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst-fcst_mean:rms@1yr:", p1, p2, unit);
 		break;
 	case 136:
-		printf("%d-%d%s anl-anl_mean:rms@1yr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s anl-anl_mean:rms@1yr:", p1, p2, unit);
 		break;
 	case 137:
-		printf("%d-%d%s fcst acc:ave@6hr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst acc:ave@6hr:", p1, p2, unit);
 		break;
 	case 138:
-		printf("%d-%d%s fcst ave:ave@6hr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst ave:ave@6hr:", p1, p2, unit);
 		break;
 	case 139:
-		printf("%d-%d%s fcst acc:ave@12hr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst acc:ave@12hr:", p1, p2, unit);
 		break;
 	case 140:
-		printf("%d-%d%s fcst ave:ave@12hr:", p1, p2, unit);
+		sprintf(_buff(time_info), "%d-%d%s fcst ave:ave@12hr:", p1, p2, unit);
 		break;
 
-	default: printf("time?:");
+	default: sprintf(_buff(time_info), "time?:");
 	}
+
+
+	return time_info;
 }
+
+
 
 /*
  *  number of missing data points w. ebisuzaki
