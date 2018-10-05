@@ -37,6 +37,8 @@ _c.gb_reader.restype = POINTER(GBR_DATA)
 res = _c.gb_reader(create_string_buffer('./sampledata/WRFPRS_d01.2018090407.grib1'.encode('utf-8')), msg_size, 0)
 
 
+
+
 for i in range(msg_size.value-1):
 
     nxny = res[i].nx * res[i].ny
@@ -53,6 +55,4 @@ for i in range(msg_size.value-1):
 
         print("{0}: {1}".format(key,v))
 
-
     print()
-

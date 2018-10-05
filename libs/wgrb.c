@@ -2318,7 +2318,7 @@ void levels(int kpds6, int kpds7, int center, int verbose) {
 char *get_levels(int kpds6, int kpds7, int center, int verbose) {
 
 	int o11, o12;
-    static char level_name[256];
+    char *level_name = malloc(sizeof(char));
 
 	/* octets 11 and 12 */
 	o11 = kpds7 / 256;
