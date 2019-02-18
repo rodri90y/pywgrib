@@ -1232,6 +1232,10 @@ typedef struct gbr_data {
     int level;
     int nx;
     int ny;
+    int p1;
+    int p2;
+    int time_range;
+    int time_unit;
     char *projection;
     float coordinates[4];
     float dxdy[2];
@@ -1255,7 +1259,7 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
     GBR_DATA *data, _data;
 
-    printf("@@@@@@@@@  Ola enfermeira\n\n");
+    //printf("@@@@@@@@@  Ola enfermeira\n\n");
 
 
 
@@ -1458,6 +1462,10 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
         _data.ny = ny;
         _data.typeOfLevel = get_levels(PDS_KPDS6(pds), PDS_KPDS7(pds), PDS_Center(pds), verbose);
         _data.datetime = get_date(pds);
+        _data.p1 = PDS_P1(pds);
+        _data.p2 = PDS_P2(pds);
+        _data.time_unit = PDS_ForecastTimeUnit(pds);
+        _data.time_range = PDS_TimeRange(pds);
         _data.timeref = times_ref(PDS_TimeRange(pds),PDS_P1(pds),PDS_P2(pds), PDS_ForecastTimeUnit(pds));
         _data.shortName = k5toa(pds);
         _data.level = PDS_KPDS7(pds);
@@ -2584,6 +2592,8 @@ char *times_ref(int time_range, int p1, int p2, int time_unit) {
 	char *time_info = malloc(100);
 	enum {anal, fcst, unknown} type;
 	int fcst_len = 0;
+    //printf("%d %d %d %d \n",time_range,p1,p2,time_unit);
+    //sprintf(_buff(time_info),"teste: ");
 
 	if (time_unit >= 0 && time_unit <= sizeof(units)/sizeof(char *))
              unit = units[time_unit];
