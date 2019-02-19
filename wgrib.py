@@ -252,7 +252,8 @@ class GribApi:
             style {dict} -- [Dict with netcdf variables as values and a list with grib variable IDs as a value] (default: {None})
         
         Returns:
-            tuple -- Returns a tuple of 2 positions, the first one refers to surface variable, the second refers to 3d variables
+            tuple -- Returns a tuple of 2 positions containing 2 objects of packstorm.ModelApi, 
+            the first one refers to surface variable, the second refers to 3d variables
         '''
 
         tmp_sfc = dict()
