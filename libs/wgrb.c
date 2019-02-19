@@ -9,6 +9,13 @@
  *         1.2.2 added access to spectral reference value l. kornblueh
  */
 
+/*
+*
+*   Modifications made by Rodrigo Yamamoto & Igor Lima
+*
+*
+*/
+
 #ifndef INT2
 #define INT2(a,b)   ((1-(int) ((unsigned) (a & 0x80) >> 6)) * (int) (((a & 0x7f) << 8) + b))
 #endif
@@ -40,16 +47,7 @@
 
 #define BDS_DataStart(bds)      ((int) (11 + BDS_MoreFlags(bds)*3))
 
-/* breaks if BDS_NumBits(bds) == 0 */
-/*
-#define BDS_NValues(bds)        (((BDS_LEN(bds) - BDS_DataStart(bds))*8 - \
-				BDS_UnusedBits(bds)) / BDS_NumBits(bds))
-*/
-/*
-#define BDS_NValues(bds)        ((BDS_NumBits(bds) == 0) ? 0 : \
-				(((BDS_LEN(bds) - BDS_DataStart(bds))*8 - \
-				BDS_UnusedBits(bds)) / BDS_NumBits(bds)))
-*/
+
 
 #define BDS_P1(bds)		(bds[16] * 256 + bds[17])
 #define BDS_P2(bds)		(bds[18] * 256 + bds[19])
@@ -743,26 +741,9 @@ int main(int argc, char **argv) {
     n_dump = 0;
 
 
-
-
-
-
-
     for (;;) {
 
-	if (n_dump == 1 && (mode == DUMP_RECORD || mode == DUMP_POSITION)) break;
-	if (mode == DUMP_LIST) {                                        /*<----- entrada da lista de inventario*/
-	    printf("ola enfermeira");
-        strcpy(line,"145:12712536:d=18090300:HGT:500 mb:1hr fcst:NAve=0");
-	    if (fgets(line,sizeof(line), stdin) == NULL) break;
-            line[sizeof(line) - 1] = 0;
-           /* if (sscanf(line,"%ld:%lu:", &count, &pos) != 2) {
-		fprintf(stderr,"bad input from stdin\n");
-                fprintf(stderr,"   %s\n", line);
-	        exit(8);
-	    }*/
-
-	}
+	
 
 	msg = seek_grib(input, &pos, &len_grib, buffer, MSEEK);
 
@@ -1259,14 +1240,13 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
     GBR_DATA *data, _data;
 
-    //printf("@@@@@@@@@  Ola enfermeira\n\n");
 
 
 
 
     if ((input = fopen(filename,"rb")) == NULL) {
         fprintf(stderr,"could not open file: %s\n", filename);
-        exit(7);
+        return NULL;
     }
     else {
         printf("Opening file: %s\n", filename);
@@ -1275,6 +1255,8 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
     if ((buffer = (unsigned char *) malloc(BUFF_ALLOC0)) == NULL) {
 	    fprintf(stderr,"not enough memory\n");
+        return NULL;
+
     }
 
     buffer_size = BUFF_ALLOC0;
@@ -1285,7 +1267,8 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
         if (msg == NULL) {
             fprintf(stderr, "ran out of data or bad file\n");
-            exit(8);
+            return NULL;
+
         }
         pos += len_grib;
     }
@@ -1296,6 +1279,8 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
     if ((data = (GBR_DATA*) malloc(sizeof(GBR_DATA))) == NULL) {
 	    fprintf(stderr,"not enough memory\n");
+        return NULL;
+
     }
 
     for (;;) {
@@ -1305,7 +1290,8 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
         if (msg == NULL) {
             break;
             fprintf(stderr,"missing GRIB record(s)\n");
-            exit(8);
+            return NULL;
+
         }
 
 
@@ -1315,12 +1301,12 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
             buffer = (unsigned char *) realloc((void *) buffer, buffer_size);
             if (buffer == NULL) {
                 fprintf(stderr,"ran out of memory\n");
-                exit(8);
+                return NULL;
             }
         }
         if (read_grib(input, pos, len_grib, buffer) == 0) {
                 fprintf(stderr,"error, could not read to end of record %ld\n",count);
-                exit(8);
+                return NULL;
 	    }
 
 
@@ -1352,6 +1338,7 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
         if (pointer-msg+4 != len_grib) {
 	        fprintf(stderr,"Len of grib message is inconsistent.\n");
+            return NULL;
 	    }
 
 
@@ -1361,7 +1348,7 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
             fprintf(stderr,"\n\n    missing end section\n");
             fprintf(stderr, "%2x %2x %2x %2x\n", pointer[0], pointer[1],pointer[2], pointer[3]);
-            exit(8);
+            return NULL;
         }
 
 
@@ -1437,7 +1424,7 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
         if ((array = (float *) malloc(sizeof(float) * nxny)) == NULL) {
             fprintf(stderr,"memory problems\n");
-            exit(8);
+            return NULL;
         }
 
 
@@ -1487,9 +1474,6 @@ GBR_DATA *gb_reader(char *filename, int *msg_size, int verbose) {
 
     return data;
 }
-
-
-
 
 
 

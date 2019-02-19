@@ -4,6 +4,11 @@ import numpy as np
 from packstorm.modeltools import ModelApi
 
 
+__author__ = "Yamamoto, Rodrigo & Lima, Igor "
+__version__ = "0.1"
+__email__ = "rodrigo.yamamoto@climatempo.com.br & igor.santos@climatempo.com.br"
+__status__ = "Development"
+
 # cc -fPIC -shared -o c_library.so c_library.c
 
 
@@ -37,10 +42,8 @@ _c = CDLL('libs/wgrb.so')
 msg_size = c_int(10)
 _c.gb_reader.argtypes = [c_char_p, POINTER(c_int), c_int]
 _c.gb_reader.restype = POINTER(GBR_DATA)
-path = '/work/powervault/testes/igor.santos/uniposting/tmp_d01/WRFPRS_d01.2018111104'
 
-# res = _c.gb_reader(create_string_buffer(path.encode('utf-8')), msg_size, 1)
-# res = _c.gb_reader(create_string_buffer('./sampledata/WRFPRS_d01.2018090407.grib1'.encode('utf-8')), msg_size, 0)
+
 class GribMessage:
     def __init__(self):
         self.n = None
@@ -71,8 +74,8 @@ class GribMessage:
         self.vars = [x for x in dir(self) if '__' not in x]
 
     def __str__(self):
-        string = self.__dict__
-        del string['raw_msg'], string['vars']
+        _string = self.__dict__
+        del _string['raw_msg'], _string['vars']
         return str(string)
     
     def __getitem__(self, key):
@@ -87,11 +90,13 @@ class GribMessage:
 
     def to_dict(self):
         ret_dict = self.__dict__
-        #del ret_dict['vars']
+        del ret_dict['vars'], ret_dict['raw_msg']
         return ret_dict
+
+    
 class GribApi:
 
-    def __init__(self, path):
+    def __init__(self, path, verbose=False):
         self.path = path
         self.variables = None
         self.latitude = None
@@ -104,11 +109,17 @@ class GribApi:
         self.LATITUDE_FIELD = ['LAT', 'XLAT', 'NLAT']
         self.LONGITUDE_FIELD = ['LON', 'XLON', 'ELON']
         self.data = self.load_data(path)
-
+        self.verbose = verbose
 
     def load_data(self, path):
         
-        res = _c.gb_reader(create_string_buffer(path.encode('utf-8')), msg_size, 1)
+        res = _c.gb_reader(create_string_buffer(path.encode('utf-8')), msg_size, 0)
+        try:
+            res.contents
+        except ValueError:
+            print('[A] Something wrong with file, check manually!')
+            return None
+
         tmp = dict()
         for i in range(msg_size.value-1):
             if self.latitude is None:
@@ -121,7 +132,6 @@ class GribApi:
                     self.time_units = f'hours since {date_time}'
             if self.time:
                 self.time.append(p1)
-
 
             var = res[i].shortName.decode('utf-8').lower()
             lvlType = res[i].typeOfLevel.decode('utf-8')
@@ -176,16 +186,15 @@ class GribApi:
             elif 'cld base' in lvlType:
                 var = var + 'clbase'
 
-            print(res[i].n, res[i].shortName, res[i].name.decode('utf-8'),res[i].typeOfLevel.decode('utf-8'),res[i].level,var)
-
-
+            if self.verbose:
+                print(res[i].n, res[i].shortName, res[i].name.decode('utf-8'), 
+                       res[i].typeOfLevel.decode('utf-8'), res[i].level, var)
 
             if var in tmp:
                 tmp[var].level.append(res[i].level)
 
-
                 if tmp[var].values.ndim == 2:
-                    dump = np.ones((2,tmp[var].ny,tmp[var].nx)) * np.nan
+                    dump = np.ones((2,tmp[var].ny, tmp[var].nx)) * np.nan
 
                     dump[0] = tmp[var].values
                     dump[1] = np.ctypeslib.as_array(res[i].values, shape=(ny, nx))
@@ -194,10 +203,7 @@ class GribApi:
                     dump = np.ones((1, tmp[var].ny, tmp[var].nx)) * np.nan
                     dump[0] = np.ctypeslib.as_array(res[i].values, shape=(ny, nx))
                     tmp[var].values = np.concatenate((tmp[var].values, dump))
-                    
-
-
-                
+                                    
             else:
                 
                 self.variables.append(var)
@@ -223,8 +229,8 @@ class GribApi:
                         tmp[var].level.append(v)
  
         return tmp
-    def __get_netcdf_var(self, n):
-        for k, v in var_dict.items():
+    def __get_netcdf_var(self, style, n):
+        for k, v in style.items():
             if n in v:
                 return k
         return None
@@ -236,9 +242,11 @@ class GribApi:
         sfc = []
         level = None
         for k, v in now.items():
-            
-            key = self.__get_netcdf_var(v['n'])
-            key = key.lower()
+            if style:
+                key = self.__get_netcdf_var(style, v['n'])
+                key = key.lower()
+            else:
+                key = k
 
             if v['values'].ndim == 3 and v['values'].shape[0] == 2:
                 tmp_sfc[key] = np.array([v['values'][-1]])
@@ -287,4 +295,7 @@ class GribApi:
         elif key in self.__dict__:
             return self.__dict__[key]
         
+path = '/work/powervault/testes/igor.santos/uniposting/tmp_d01/WRFPRS_d01.2018111104'
 
+test = GribApi(path)
+print(test.to_dict())
