@@ -43,7 +43,6 @@ msg_size = c_int(10)
 _c.gb_reader.argtypes = [c_char_p, POINTER(c_int), c_int]
 _c.gb_reader.restype = POINTER(GBR_DATA)
 
-
 class GribMessage:
     def __init__(self):
         self.n = None
@@ -112,6 +111,16 @@ class GribApi:
         self.verbose = verbose
 
     def load_data(self, path):
+        '''Load a dictionary with grib messages with variable shortname as a key, 
+        in value is used a GribMessage object to store the info
+        
+        Arguments:
+            path {path} -- the path to the grib file
+        
+        Returns:
+            dict -- Key: variable, value: GribMessage
+        '''
+
         
         res = _c.gb_reader(create_string_buffer(path.encode('utf-8')), msg_size, 0)
         try:
@@ -236,6 +245,16 @@ class GribApi:
         return None
 
     def toModelApi(self, style=None):
+        '''toModelApi - 
+        Converts GribApi to intern framework packstorm.ModelApi
+        
+        Keyword Arguments:
+            style {dict} -- [Dict with netcdf variables as values and a list with grib variable IDs as a value] (default: {None})
+        
+        Returns:
+            tuple -- Returns a tuple of 2 positions, the first one refers to surface variable, the second refers to 3d variables
+        '''
+
         tmp_sfc = dict()
         tmp_3d = dict()
         now = self.to_dict()
@@ -251,11 +270,8 @@ class GribApi:
             if v['values'].ndim == 3 and v['values'].shape[0] == 2:
                 tmp_sfc[key] = np.array([v['values'][-1]])
 
-
             elif v['values'].ndim == 2:
                 tmp_sfc[key] = np.array([v['values']])
-
-
 
             else:
                 level = v['level'][::-1]
@@ -295,7 +311,4 @@ class GribApi:
         elif key in self.__dict__:
             return self.__dict__[key]
         
-path = '/work/powervault/testes/igor.santos/uniposting/tmp_d01/WRFPRS_d01.2018111104'
 
-test = GribApi(path)
-print(test.to_dict())
