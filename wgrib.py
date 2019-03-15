@@ -1,13 +1,6 @@
 from ctypes import *
-import matplotlib.pyplot as plt
 import numpy as np
 from packstorm.modeltools import ModelApi
-
-
-__author__ = "Yamamoto, Rodrigo & Lima, Igor "
-__version__ = "0.1"
-__email__ = "rodrigo.yamamoto@climatempo.com.br & igor.santos@climatempo.com.br"
-__status__ = "Development"
 
 # cc -fPIC -shared -o c_library.so c_library.c
 
@@ -96,6 +89,7 @@ class GribMessage:
 class GribApi:
 
     def __init__(self, path, verbose=False):
+        self.verbose = verbose
         self.path = path
         self.variables = None
         self.latitude = None
@@ -107,8 +101,10 @@ class GribApi:
         self.time_units = None
         self.LATITUDE_FIELD = ['LAT', 'XLAT', 'NLAT']
         self.LONGITUDE_FIELD = ['LON', 'XLON', 'ELON']
+        self.messages = None
         self.data = self.load_data(path)
-        self.verbose = verbose
+        
+
 
     def load_data(self, path):
         '''Load a dictionary with grib messages with variable shortname as a key, 
@@ -123,6 +119,7 @@ class GribApi:
 
         
         res = _c.gb_reader(create_string_buffer(path.encode('utf-8')), msg_size, 0)
+        self.messages = res
         try:
             res.contents
         except ValueError:
@@ -135,21 +132,21 @@ class GribApi:
                 self.latitude = np.linspace(res[i].coordinates[0], res[i].coordinates[2], num=res[i].ny)
             if self.longitude is None:
                 self.longitude = np.linspace(res[i].coordinates[1], res[i].coordinates[3], num=res[i].nx)
+
             if self.time_units is None:
                 if 'hr' in res[i].timeref.decode('utf-8'):
                     date_time = res[i].datetime.decode('utf-8')
                     self.time_units = f'hours since {date_time}'
-            if self.time:
-                self.time.append(p1)
+
+            if not self.time:
+                self.time.append(res[i].p1)
 
             var = res[i].shortName.decode('utf-8').lower()
             lvlType = res[i].typeOfLevel.decode('utf-8')
             if 'hybrid' in lvlType:
                 var = var + 'h{lev}'.format(lev=res[i].level)
-
             elif '2 m' in lvlType:
                 var = var + '2m'
-
             elif '10 m' in lvlType:
                 var = var + '10m'
             
@@ -191,12 +188,11 @@ class GribApi:
                 var = var + 'clt'
             elif 'cloud ceiling' in lvlType:
                 var = var + 'clceil'
-            
             elif 'cld base' in lvlType:
                 var = var + 'clbase'
 
             if self.verbose:
-                print(res[i].n, res[i].shortName, res[i].name.decode('utf-8'), 
+                print(res[i].n, res[i].shortName.decode('utf-8'), res[i].name.decode('utf-8'), 
                        res[i].typeOfLevel.decode('utf-8'), res[i].level, var)
 
             if var in tmp:
@@ -235,66 +231,20 @@ class GribApi:
                     if key != 'level': 
                         setattr(tmp[var], key, v)
                     else:
-                        tmp[var].level.append(v)
+                        tmp[var].level.append(v)       
  
         return tmp
+
     def __get_netcdf_var(self, style, n):
         for k, v in style.items():
             if n in v:
                 return k
         return None
 
-    def toModelApi(self, style=None):
-        '''toModelApi - 
-        Converts GribApi to intern framework packstorm.ModelApi
+    def close(self):
         
-        Keyword Arguments:
-            style {dict} -- [Dict with netcdf variables as values and a list with grib variable IDs as a value] (default: {None})
-        
-        Returns:
-            tuple -- Returns a tuple of 2 positions containing 2 objects of packstorm.ModelApi, 
-            the first one refers to surface variable, the second refers to 3d variables
-        '''
+        _c.free_file(byref(self.messages))
 
-        tmp_sfc = dict()
-        tmp_3d = dict()
-        now = self.to_dict()
-        sfc = []
-        level = None
-        for k, v in now.items():
-            if style:
-                key = self.__get_netcdf_var(style, v['n'])
-                key = key.lower()
-            else:
-                key = k
-
-            if v['values'].ndim == 3 and v['values'].shape[0] == 2:
-                tmp_sfc[key] = np.array([v['values'][-1]])
-
-            elif v['values'].ndim == 2:
-                tmp_sfc[key] = np.array([v['values']])
-
-            else:
-                level = v['level'][::-1]
-                tmp_3d[key] = np.flip(np.array([v['values']]), axis=1)
-
-        tmp_sfc['latitude'] = self.latitude
-        tmp_sfc['longitude'] = self.longitude
-        tmp_sfc['time'] = np.array(self.time)
-        modelapi_sfc = ModelApi(tmp_sfc)
-        modelapi_sfc.time_units = self.time_units
-
-        tmp_3d['latitude'] = self.latitude
-        tmp_3d['longitude'] = self.longitude
-        tmp_3d['time'] = np.array(self.time)
-        tmp_3d['level'] = level
-        modelapi_3d = ModelApi(tmp_3d)
-                
-
-        modelapi_3d.time_units = self.time_units
-
-        
-        return modelapi_sfc,modelapi_3d
 
     def to_dict(self):
         ret_dict = {k: v.to_dict() for k, v in self.data.items()}
@@ -312,4 +262,9 @@ class GribApi:
         elif key in self.__dict__:
             return self.__dict__[key]
         
+
+
+
+
+
 
